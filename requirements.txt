@@ -1,0 +1,7 @@
+feedparser>=6.0
+requests>=2.31
+edge-tts>=7.0
+gTTS>=2.5
+google-genai>=1.0
+anthropic>=0.40
+mutagen>=1.47

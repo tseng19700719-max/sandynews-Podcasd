@@ -37,7 +37,7 @@ def window(now: datetime, mode: str) -> tuple[datetime, int]:
     return now - timedelta(hours=24), 1
 
 
-def show_notes(script: str, stories: list[fetch.Story], n: int = 25) -> str:
+def show_notes(script: str, stories: list[fetch.Story], n: int = 40) -> str:
     refs = "\n".join(f"・{s.title}（{'、'.join(s.sources)}）{s.items[0].link}" for s in stories[:n])
     return f"{script}\n\n——\n參考新聞（依報導家數排序，前 {n} 則）：\n{refs}"
 

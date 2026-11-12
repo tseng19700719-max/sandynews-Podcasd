@@ -32,9 +32,24 @@ def fixtures():
                  ("美股四大指數收紅　費半漲2%", "美股週三...", h(1))])
     ctee = rss([("台積電10月營收創同期新高 年增逾三成 - 工商時報", "台積電10月營收創同期新高 年增逾三成 工商時報", h(3)),
                 ("鴻海AI伺服器出貨大增 - 工商時報", "鴻海AI伺服器出貨大增 工商時報", h(6))])
+    gnews = (f'<?xml version="1.0"?><rss version="2.0"><channel><title>商業</title>'
+             f'<item><title>美股收盤》輝達止跌！費半狂飆近6％ 台積電ADR漲逾4％ - 自由財經</title>'
+             f'<link>https://news.google.com/a</link><pubDate>{format_datetime(h(1))}</pubDate>'
+             f'<source url="https://ec.ltn.com.tw">自由財經</source></item>'
+             f'<item><title>台積電10月營收創同期新高 年增逾三成 - 中時新聞網</title>'
+             f'<link>https://news.google.com/b</link><pubDate>{format_datetime(h(2))}</pubDate>'
+             f'<source url="https://www.chinatimes.com">中時新聞網</source></item>'
+             f'</channel></rss>').encode()
+    import json
+    cnyes = json.dumps({"items": {"data": [
+        {"title": "Anthropic營收狂飆背後藏風險", "summary": "摘要", "newsId": 6658387,
+         "publishAt": int(h(3).timestamp()), "categoryName": "美股雷達"},
+        {"title": "舊聞", "summary": "", "newsId": 1, "publishAt": int(h(40).timestamp()), "categoryName": "台股新聞"},
+    ]}}).encode()
     raw = {}
     for f in config.FEEDS:
-        raw[f["url"]] = ctee if f["source"] == "工商時報" else (udn if f["source"] == "經濟日報" else yahoo)
+        raw[f["url"]] = {"工商時報": ctee, "經濟日報": udn, "Google新聞": gnews, "鉅亨網": cnyes,
+                         "自由財經": b"<html>blocked</html>"}.get(f["source"], yahoo)
     return raw
 
 
@@ -46,10 +61,16 @@ def test_collect_and_dedupe():
     assert not any("舊聞" in t for t in titles), "超過 24 小時的新聞應被排除"
     tsmc = [s for s in stories if "台積電10月營收" in s.title]
     assert len(tsmc) == 1, f"三家同一則應合併：{titles}"
-    assert tsmc[0].coverage == 3 and stories[0] is tsmc[0], "報導家數最多的應排第一"
+    assert tsmc[0].coverage == 4, f"經濟日報+Yahoo+工商+中時 應算 4 家：{tsmc[0].sources}"
+    assert stories[0] is tsmc[0], "報導家數最多的應排第一"
+    nv = [s for s in stories if "輝達止跌" in s.title]
+    assert nv and nv[0].sources == ["自由財經"], "Google 新聞應改用實際媒體名稱"
+    cy = [s for s in stories if "Anthropic" in s.title]
+    assert cy and cy[0].items[0].link.endswith("6658387") and cy[0].kind == "intl"
+    assert not any(t == "舊聞" for t in titles)
     assert all(" - 工商時報" not in t for t in titles)
     prompt = summarize.build_prompt(stories, NOW, "weekday")
-    assert "11月12日星期四" in prompt and "報導家數3" in prompt
+    assert "11月12日星期四" in prompt and "報導家數4" in prompt and "至少 20 則" in prompt and "總體經濟（至少 8 則" in prompt
 
 
 def test_monday_window():
@@ -97,3 +118,10 @@ def test_full_run(tmp_path, monkeypatch):
     assert ep["duration"] > 4
     assert "參考新聞" in items[0].find("description").text
     assert (tmp_path / "site" / "cover.png").exists()
+
+
+def test_macro_classify():
+    from podcast.fetch import _classify
+    assert _classify("美國10月CPI年增3.1% 高於預期", "intl") == "macro"
+    assert _classify("新台幣收32.860元 升0.5分", "business") == "macro"
+    assert _classify("鴻海AI伺服器出貨大增", "business") == "business"

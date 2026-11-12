@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import calendar
 import html
+import json
 import logging
 import re
 import time
@@ -72,6 +73,15 @@ def fetch_feed(cfg: dict, days: int, retries: int = 3, raw: bytes | None = None)
         if raw is None:
             return []
 
+    if cfg.get("type") == "cnyes":
+        items = _parse_cnyes(raw, cfg)
+    else:
+        items = _parse_rss(raw, cfg)
+    log.info("%s／%s：%d 則", cfg["source"], cfg["section"], len(items))
+    return items
+
+
+def _parse_rss(raw: bytes, cfg: dict) -> list[NewsItem]:
     parsed = feedparser.parse(raw)
     items = []
     for e in parsed.entries:
@@ -79,14 +89,53 @@ def fetch_feed(cfg: dict, days: int, retries: int = 3, raw: bytes | None = None)
         if not t:
             continue
         pub = datetime.fromtimestamp(calendar.timegm(t), tz=timezone.utc)
-        title = _strip_source_suffix(_clean(e.get("title", "")))
+        raw_title = _clean(e.get("title", ""))
+        title = _strip_source_suffix(raw_title)
+        source = cfg["source"]
+        if source == "Google新聞":   # 用實際媒體名稱，報導家數才算得準
+            src = e.get("source") or {}
+            source = (src.get("title") if hasattr(src, "get") else "") or \
+                (raw_title[len(title):].lstrip(" -") or "Google新聞")
         summary = _clean(e.get("summary", ""))
-        if summary.startswith(title[:10]) and len(summary) < len(title) + 20:
+        if summary.startswith(title[:10]) and len(summary) < len(title) + 30:
             summary = ""  # Google 新聞的 summary 只是標題重複
         if title:
-            items.append(NewsItem(cfg["source"], cfg["section"], cfg["kind"], title,
+            items.append(NewsItem(source, cfg["section"], _classify(title, cfg["kind"]), title,
                                   summary[:220], e.get("link", ""), pub))
-    log.info("%s／%s：%d 則", cfg["source"], cfg["section"], len(items))
+    return items
+
+
+MACRO_KEYWORDS = ("聯準會", "Fed", "FOMC", "降息", "升息", "利率決策", "通膨", "CPI", "PCE", "PPI", "非農",
+                  "就業數據", "失業率", "GDP", "經濟成長", "央行", "美債", "殖利率", "美元指數", "匯率",
+                  "新台幣", "日圓", "人民幣", "油價", "原油", "金價", "外銷訂單", "出口", "景氣燈號",
+                  "PMI", "經濟數據", "衰退", "財政部", "主計")
+
+
+def _classify(title: str, default: str) -> str:
+    return "macro" if any(k in title for k in MACRO_KEYWORDS) else default
+
+
+CNYES_INTL = ("美股", "國際", "歐", "亞股", "陸股", "港股", "外匯", "原物料", "期貨", "債")
+
+
+def _parse_cnyes(raw: bytes, cfg: dict) -> list[NewsItem]:
+    try:
+        data = json.loads(raw)["items"]["data"]
+    except Exception as e:  # noqa: BLE001
+        log.warning("鉅亨網格式異常：%s", e)
+        return []
+    items = []
+    for d in data:
+        title = _clean(d.get("title", ""))
+        if not title or not d.get("publishAt"):
+            continue
+        cat = d.get("categoryName") or cfg["section"]
+        kind = _classify(title, "intl" if any(k in cat for k in CNYES_INTL) else cfg["kind"])
+        items.append(NewsItem(
+            cfg["source"], cat, kind, title,
+            _clean(d.get("summary", ""))[:220],
+            f"https://news.cnyes.com/news/id/{d.get('newsId')}",
+            datetime.fromtimestamp(int(d["publishAt"]), tz=timezone.utc)))
     return items
 
 
@@ -115,12 +164,16 @@ def dedupe(items: list[NewsItem], threshold: float = 0.6) -> list[Story]:
                 st.items.append(it)
                 if len(it.summary) > len(st.summary):
                     st.summary = it.summary
-                if it.kind == "business":
-                    st.kind = "business"
                 break
         else:
             stories.append(Story(it.title, it.summary, it.kind, it.published, [it]))
             keys.append(k)
+    for st in stories:   # 分類：任一家判為總經就算總經；否則國際採多數決（平手算商業）
+        kinds = [i.kind for i in st.items]
+        if "macro" in kinds:
+            st.kind = "macro"
+        else:
+            st.kind = "intl" if kinds.count("intl") * 2 > len(kinds) else "business"
     stories.sort(key=lambda s: (s.coverage, s.published), reverse=True)
     return stories
 

@@ -70,7 +70,12 @@ MAX_PER_FEED = {"weekday": 60, "monday": 120}
 
 # ── AI 摘要 ─────────────────────────────────────────────
 # 在 GitHub 的 Variables 設定 LLM_PROVIDER=gemini 或 claude（預設 gemini）
-GEMINI_MODELS = ["gemini-3.5-flash", "gemini-2.5-flash"]   # 第一個失敗會自動改用下一個
+# 2.5-flash 速度快、可關閉「思考」以加速；失敗會自動改用下一個
+GEMINI_MODELS = ["gemini-2.5-flash", "gemini-3.5-flash"]
+# 交給 AI 的新聞上限（依報導家數排序取前 N 則），控制輸入長度與速度
+MAX_CANDIDATES = {"weekday": 260, "monday": 320}
+# 整個 AI 摘要階段的時間上限（分鐘），超過就停止追加，用標題快訊補足
+AI_TIME_BUDGET_MIN = 15
 CLAUDE_MODEL = "claude-sonnet-5-5"
 
 # 每集各段至少要講幾則（程式會實際計算，不足會自動請 AI 補）

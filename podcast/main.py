@@ -37,7 +37,13 @@ def window(now: datetime, mode: str) -> tuple[datetime, int]:
     return now - timedelta(hours=24), 1
 
 
-def show_notes(script: str, stories: list[fetch.Story], n: int = 40) -> str:
+def show_notes(script: str, stories: list[fetch.Story], items=None, n: int = 40) -> str:
+    if items:   # 每則播報對應的原始新聞，方便核對
+        lines = []
+        for k, it in enumerate(items, 1):
+            s = stories[it.ids[0] - 1]
+            lines.append(f"{k}. {s.title}（{'、'.join(s.sources)}）{s.items[0].link}")
+        return f"{script}\n\n——\n各則新聞的原始出處：\n" + "\n".join(lines)
     refs = "\n".join(f"・{s.title}（{'、'.join(s.sources)}）{s.items[0].link}" for s in stories[:n])
     return f"{script}\n\n——\n參考新聞（依報導家數排序，前 {n} 則）：\n{refs}"
 
@@ -64,8 +70,10 @@ def run(now: datetime, mode: str, site_url: str, *, stories=None, script=None,
         stories = fetch.collect(config.FEEDS, since, config.MAX_PER_FEED[mode], days)
     if len(stories) < 10:
         raise RuntimeError(f"只抓到 {len(stories)} 則新聞，來源可能被擋或改版，請檢查 log")
+    items, counts = None, {}
     if script is None:
-        script = summarize.summarize(stories, now, mode)
+        brief = summarize.summarize(stories, now, mode)
+        script, items, counts = brief.script, brief.items, brief.counts
 
     (SITE / "episodes").mkdir(parents=True, exist_ok=True)
     shutil.copy(ROOT / "static" / "cover.png", SITE / "cover.png")
@@ -83,10 +91,11 @@ def run(now: datetime, mode: str, site_url: str, *, stories=None, script=None,
         "published": now.isoformat(),
         "bytes": out.stat().st_size,
         "duration": MP3(out).info.length,
-        "description": show_notes(script, stories),
+        "description": show_notes(script, stories, items),
         "engine": engine,
         "provider": os.environ.get("LLM_PROVIDER", "gemini"),
         "stories": len(stories),
+        "counts": counts,
     }
     episodes.insert(0, ep)
 

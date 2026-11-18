@@ -48,8 +48,9 @@ def fixtures():
     ]}}).encode()
     raw = {}
     for f in config.FEEDS:
+        src = f["source"] if f["source"] != "Google新聞" or f["section"] == "商業" else "略過"
         raw[f["url"]] = {"工商時報": ctee, "經濟日報": udn, "Google新聞": gnews, "鉅亨網": cnyes,
-                         "自由財經": b"<html>blocked</html>"}.get(f["source"], yahoo)
+                         "Yahoo股市": yahoo}.get(src, b"<html>blocked</html>")
     return raw
 
 
@@ -69,8 +70,10 @@ def test_collect_and_dedupe():
     assert cy and cy[0].items[0].link.endswith("6658387") and cy[0].kind == "intl"
     assert not any(t == "舊聞" for t in titles)
     assert all(" - 工商時報" not in t for t in titles)
-    prompt = summarize.build_prompt(stories, NOW, "weekday")
-    assert "11月12日星期四" in prompt and "報導家數4" in prompt and "至少 20 則" in prompt and "總體經濟（至少 8 則" in prompt
+    prompt = summarize.build_section_prompt("world", 20, stories, NOW, "weekday", {len(stories)})
+    assert "至少 20 則" in prompt and "國際重大新聞" in prompt and "中東" in prompt
+    assert f"\n{len(stories)}|" not in prompt, "已用過的編號不應再出現在清單"
+    assert "\n1|商業|4家|" in prompt
 
 
 def test_monday_window():
@@ -125,3 +128,39 @@ def test_macro_classify():
     assert _classify("美國10月CPI年增3.1% 高於預期", "intl") == "macro"
     assert _classify("新台幣收32.860元 升0.5分", "business") == "macro"
     assert _classify("鴻海AI伺服器出貨大增", "business") == "business"
+
+
+def test_summarize_enforces_counts():
+    """AI 第一次給太少時，程式要自動補；編造（無編號）與重複的要剔除；各段順序正確。"""
+    import json, re
+    from podcast.fetch import NewsItem, Story
+    kinds = ["business", "intl", "macro"]
+    stories = [Story(f"新聞{i}", "", kinds[i % 3], NOW, [NewsItem("A", "s", kinds[i % 3], f"新聞{i}", "", f"https://x/{i}", NOW)])
+               for i in range(1, 181)]
+    calls = {"n": 0}
+
+    def fake_call(prompt):
+        calls["n"] += 1
+        avail = [int(m) for m in re.findall(r"^(\d+)\|", prompt, flags=re.M)]
+        if "watch" in prompt:
+            return json.dumps({"watch": ["留意美國CPI公布"]}, ensure_ascii=False)
+        need = int(re.search(r"至少 (\d+) 則", prompt).group(1))
+        give = avail[: max(1, need // 2)]           # 每次只給一半，逼程式去補
+        items = [{"ids": [i], "text": f"第{i}則播報。"} for i in give]
+        items.append({"ids": [], "text": "編造的新聞"})          # 無編號 → 應剔除
+        items.append({"ids": [give[0]], "text": "重複的新聞"})   # 重複 → 應剔除
+        return json.dumps({"items": items}, ensure_ascii=False)
+
+    import config
+    brief = summarize.summarize(stories, NOW, "weekday", call=fake_call, pause=0)
+    for k, need in config.MIN_ITEMS["weekday"].items():
+        if k != "global_biz":   # 國際財經沒有保底補足（類別無法從標籤判斷）
+            assert brief.counts[k] >= need, (k, brief.counts)
+    assert calls["n"] >= 8, "AI 給太少時應該自動追加請求"
+    assert "編造" not in brief.script and "重複" not in brief.script
+    ids = [i for it in brief.items for i in it.ids]
+    assert len(ids) == len(set(ids)), "同一則新聞不可出現兩次"
+    s = brief.script
+    assert s.index("台股與產業") < s.index("國際財經") < s.index("總體經濟") < s.index("國際重大新聞")
+    assert f"整理 {sum(brief.counts.values())} 則" in s
+    assert "今日留意：第一，留意美國CPI公布" in s

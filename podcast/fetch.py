@@ -168,12 +168,9 @@ def dedupe(items: list[NewsItem], threshold: float = 0.6) -> list[Story]:
         else:
             stories.append(Story(it.title, it.summary, it.kind, it.published, [it]))
             keys.append(k)
-    for st in stories:   # 分類：任一家判為總經就算總經；否則國際採多數決（平手算商業）
+    for st in stories:   # 分類採多數決；平手時 商業 > 國際 > 總經
         kinds = [i.kind for i in st.items]
-        if "macro" in kinds:
-            st.kind = "macro"
-        else:
-            st.kind = "intl" if kinds.count("intl") * 2 > len(kinds) else "business"
+        st.kind = max(("business", "intl", "macro"), key=lambda k: (kinds.count(k), -("business", "intl", "macro").index(k)))
     stories.sort(key=lambda s: (s.coverage, s.published), reverse=True)
     return stories
 

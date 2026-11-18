@@ -43,6 +43,16 @@ FEEDS = [
     # Google 新聞「國際」版面：國際重大事件（政經、地緣政治、天災等）
     {"source": "Google新聞", "section": "國際", "kind": "intl",
      "url": "https://news.google.com/rss/headlines/section/topic/WORLD?" + GN},
+    # 中央社（國際、兩岸、產經）
+    {"source": "中央社", "section": "國際", "kind": "intl",
+     "url": "https://feeds.feedburner.com/rsscna/intworld"},
+    {"source": "中央社", "section": "兩岸", "kind": "intl",
+     "url": "https://feeds.feedburner.com/rsscna/mainland"},
+    {"source": "中央社", "section": "產經", "kind": "business",
+     "url": "https://feeds.feedburner.com/rsscna/finance"},
+    # 自由時報 國際
+    {"source": "自由時報", "section": "國際", "kind": "intl",
+     "url": "https://news.ltn.com.tw/rss/world.xml"},
     # 鉅亨網（頭條 + 台股 + 美股）
     {"source": "鉅亨網", "section": "頭條", "kind": "business", "type": "cnyes",
      "url": "https://api.cnyes.com/media/api/v1/newslist/category/headline?limit=100"},
@@ -63,11 +73,12 @@ MAX_PER_FEED = {"weekday": 60, "monday": 120}
 GEMINI_MODELS = ["gemini-3.5-flash", "gemini-2.5-flash"]   # 第一個失敗會自動改用下一個
 CLAUDE_MODEL = "claude-sonnet-5-5"
 
-# 每集至少要講幾則（商業股市、國際各自計算）
-MIN_ITEMS = {"weekday": {"business": 20, "macro": 8, "intl": 20},
-             "monday": {"business": 20, "macro": 8, "intl": 25}}
-# 播報稿目標長度（中文字數；中文朗讀約每分鐘 280～320 字）
-TARGET_CHARS = {"weekday": "5500 到 6500", "monday": "6000 到 7000"}
+# 每集各段至少要講幾則（程式會實際計算，不足會自動請 AI 補）
+#   tw_biz=台股與產業、global_biz=國際財經與企業、macro=總體經濟、world=國際重大新聞
+MIN_ITEMS = {
+    "weekday": {"tw_biz": 20, "global_biz": 12, "macro": 8, "world": 20},
+    "monday":  {"tw_biz": 15, "global_biz": 12, "macro": 8, "world": 25},
+}
 
 # ── 語音 ─────────────────────────────────────────────
 # 台灣腔可選：zh-TW-HsiaoChenNeural（女）、zh-TW-HsiaoYuNeural（女）、zh-TW-YunJheNeural（男）

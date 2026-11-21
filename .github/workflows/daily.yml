@@ -31,7 +31,7 @@ jobs:
     timeout-minutes: 50
     environment:
       name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
+      url: ${{ steps.deployment.outputs.page_url || steps.deployment2.outputs.page_url }}
     steps:
       - uses: actions/checkout@v5
         with:
@@ -76,6 +76,15 @@ jobs:
 
       - id: deployment
         if: steps.check.outputs.skip != 'true'
+        continue-on-error: true      # 偶爾會找不到剛上傳的檔案（GitHub 延遲），失敗就等一下重試
+        uses: actions/deploy-pages@v4
+
+      - name: 等待 60 秒後重試發布
+        if: steps.check.outputs.skip != 'true' && steps.deployment.outcome == 'failure'
+        run: sleep 60
+
+      - id: deployment2
+        if: steps.check.outputs.skip != 'true' && steps.deployment.outcome == 'failure'
         uses: actions/deploy-pages@v4
 
       - name: 存回集數紀錄
